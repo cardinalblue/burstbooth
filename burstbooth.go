@@ -88,6 +88,7 @@ func init() {
 	jsonError("/PostImg", PostImg)
 	jsonError("/Hot", Hot)
 	jsonError("/Vote", Vote)
+	http.HandleFunc("/", root)
 }
 
 // PostImg posts an image URL to the server
@@ -256,6 +257,10 @@ func Vote(w http.ResponseWriter, r *http.Request) *appError {
 	pj.V = true
 	json.NewEncoder(w).Encode(pj)
 	return nil
+}
+
+func root(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte("hello world!"))
 }
 
 func getPostsByScore(postType string, key []byte, score int, forward bool, limit int) ([]PostDDB, error) {

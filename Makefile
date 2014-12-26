@@ -1,6 +1,10 @@
 DDB_TABLES=DDB_TABLE_POST=Post
 DDB_TABLES+= DDB_TABLE_VOTE=Vote
 
+ec2:
+	git archive --output=ec2.zip HEAD
+	zip -r ec2.zip ./Dockerfile
+
 local:
 	rm -f -r ${GOPATH}/pkg/darwin_amd64/github.com/cardinalblue/burstbooth
 	go get -tags local github.com/cardinalblue/burstbooth/bin/server
@@ -15,3 +19,6 @@ test:
 
 localddb:
 	AWS_ACCESS_KEY_ID=BurstboothDev ${DDB_TABLES} go run -tags local bin/setupddb/main.go
+
+clean:
+	rm -f ec2.zip

@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	ebEnvIDTagKey = "elasticbeanstalk:environment-id"
+	instanceMetadataHost = "169.254.169.254"
+	ebEnvIDTagKey        = "elasticbeanstalk:environment-id"
 )
 
 var (
@@ -134,7 +135,7 @@ func InstanceID() (string, error) {
 	if myInstanceID != "" {
 		return myInstanceID, nil
 	}
-	b, err := httpGet("http://instance-data/latest/meta-data/instance-id")
+	b, err := httpGet("http://" + instanceMetadataHost + "/latest/meta-data/instance-id")
 	if err != nil {
 		return "", err
 	}
@@ -143,7 +144,7 @@ func InstanceID() (string, error) {
 }
 
 func LocalIPv4() (string, error) {
-	b, err := httpGet("http://instance-data/latest/meta-data/local-ipv4")
+	b, err := httpGet("http://" + instanceMetadataHost + "/latest/meta-data/local-ipv4")
 	if err != nil {
 		return "", err
 	}
@@ -164,7 +165,7 @@ type InstanceIdentityResult struct {
 }
 
 func InstanceIdentity() (*InstanceIdentityResult, error) {
-	resp, err := http.Get("http://instance-data/latest/dynamic/instance-identity/document")
+	resp, err := http.Get("http://" + instanceMetadataHost + "/latest/dynamic/instance-identity/document")
 	if err != nil {
 		return nil, err
 	}
