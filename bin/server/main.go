@@ -7,7 +7,7 @@ import (
 
 	"github.com/golang/glog"
 
-	_ "hack20141225"
+	_ "github.com/cardinalblue/burstbooth"
 )
 
 var (

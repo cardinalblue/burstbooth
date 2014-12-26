@@ -1,4 +1,4 @@
-package hack
+package burstbooth
 
 import (
 	"encoding/base64"
@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"testing"
 
-	"hack20141225/aws"
-	"hack20141225/util"
+	"github.com/cardinalblue/burstbooth/aws"
+	"github.com/cardinalblue/burstbooth/util"
 )
 
 func TestPostAndVote(t *testing.T) {

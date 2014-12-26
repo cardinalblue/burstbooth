@@ -5,12 +5,12 @@ import (
 
 	"github.com/golang/glog"
 
-	"hack20141225"
+	"github.com/cardinalblue/burstbooth"
 )
 
 func main() {
 	flag.Parse()
-	err := hack.CreateDDBTables()
+	err := burstbooth.CreateDDBTables()
 	if err != nil {
 		glog.Fatalf(err.Error())
 	}

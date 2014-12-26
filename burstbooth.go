@@ -1,4 +1,4 @@
-package hack
+package burstbooth
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 
 	"github.com/golang/glog"
 
-	"hack20141225/aws"
+	"github.com/cardinalblue/burstbooth/aws"
 )
 
 const (
