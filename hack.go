@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"time"
 
@@ -25,12 +26,52 @@ type PostDDB struct {
 	K   struct{ B []byte } // a unique key for this post
 	S   struct{ N string } // score
 	URL struct{ S string } // url of the image
+
+	// Optional Attributes
+	C *struct{ S string } `json:",omitempty"` // caption
 }
 
 func postPK(index string, key []byte) []byte {
 	b := append([]byte(index), '\x00')
 	b = append(b, key...)
 	return b
+}
+
+type PostJSON struct {
+	I   struct{ S string }
+	K   struct{ B []byte }
+	S   struct{ N string }
+	URL struct{ S string }
+
+	C struct{ S string }
+
+	V bool
+}
+
+func postDDBToJSON(p PostDDB) PostJSON {
+	pj := PostJSON{}
+	pj.I = p.I
+	pj.K = p.K
+	pj.S = p.S
+	pj.URL = p.URL
+	if p.C != nil {
+		pj.C.S = p.C.S
+	}
+	return pj
+}
+
+// postJSONByKDesc implements sort.Interface for PostJSON.
+type postJSONByKDesc []PostJSON
+
+func (a postJSONByKDesc) Len() int      { return len(a) }
+func (a postJSONByKDesc) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a postJSONByKDesc) Less(i, j int) bool {
+	is, _ := strconv.Atoi(a[i].S.N)
+	js, _ := strconv.Atoi(a[j].S.N)
+	if is != js {
+		return is > js
+	}
+	return bytes.Compare(a[i].K.B, a[j].K.B) > 0
 }
 
 type VoteDDB struct {
@@ -50,9 +91,10 @@ func init() {
 }
 
 // PostImg posts an image URL to the server
-//   curl http://localhost:8080/PostImg?url=http%3A%2F%2F127.0.0.1%2Fa.jpg
+//   curl 'http://localhost:8080/PostImg?url=http%3A%2F%2F127.0.0.1%2Fa.jpg'
 func PostImg(w http.ResponseWriter, r *http.Request) *appError {
 	url := r.FormValue("url")
+	caption := r.FormValue("caption")
 
 	t := time.Now().UnixNano()
 	buf := bytes.NewBuffer([]byte{})
@@ -64,6 +106,9 @@ func PostImg(w http.ResponseWriter, r *http.Request) *appError {
 	post.K.B = buf.Bytes()
 	post.S.N = "0"
 	post.URL.S = url
+	if caption != "" {
+		post.C = &struct{ S string }{S: caption}
+	}
 	bodyj := struct {
 		TableName                 string
 		Item                      PostDDB
@@ -86,7 +131,7 @@ func PostImg(w http.ResponseWriter, r *http.Request) *appError {
 }
 
 // Hot returns the hottest images.
-//  curl http://localhost:8080/Hot
+//  curl http://localhost:8080/Hot?device_id=ddd
 func Hot(w http.ResponseWriter, r *http.Request) *appError {
 	var key []byte = nil
 	var score int
@@ -105,7 +150,7 @@ func Hot(w http.ResponseWriter, r *http.Request) *appError {
 	if r.FormValue("forward") == "true" {
 		forward = true
 	}
-	limit := 20
+	limit := 32
 	if limitStr := r.FormValue("limit"); limitStr != "" {
 		l, err := strconv.Atoi(limitStr)
 		if err != nil {
@@ -113,12 +158,38 @@ func Hot(w http.ResponseWriter, r *http.Request) *appError {
 		}
 		limit = l
 	}
+	deviceID := []byte(r.FormValue("device_id"))
 
 	posts, err := getPostsByScore(postTypeGIF, key, score, forward, limit)
 	if err != nil {
 		return &appError{Message: err.Error(), Code: http.StatusInternalServerError}
 	}
-	json.NewEncoder(w).Encode(posts)
+	resp := struct {
+		Posts []PostJSON
+	}{}
+	for _, p := range posts {
+		pj := postDDBToJSON(p)
+		bodyj := struct {
+			TableName string
+			Key       struct {
+				D struct{ B []byte }
+				P struct{ B []byte }
+			}
+		}{}
+		bodyj.TableName = ddbTableVote
+		bodyj.Key.D.B = deviceID
+		bodyj.Key.P.B = postPK(postTypeGIF, p.K.B)
+		v := struct{ Item *VoteDDB }{}
+		if err := aws.DynamoDBPost("GetItem", bodyj, &v); err == nil {
+			if v.Item != nil {
+				pj.V = true
+			}
+		}
+		resp.Posts = append(resp.Posts, pj)
+	}
+	sort.Sort(postJSONByKDesc(resp.Posts))
+
+	json.NewEncoder(w).Encode(resp)
 	return nil
 }
 
@@ -126,6 +197,9 @@ func Hot(w http.ResponseWriter, r *http.Request) *appError {
 //   curl 'http://localhost:8080/Vote?device_id=ddd&key=E7MySUSwyFQ%3D'
 func Vote(w http.ResponseWriter, r *http.Request) *appError {
 	deviceID := r.FormValue("device_id")
+	if deviceID == "" {
+		return &appError{Message: "no device_id", Code: http.StatusBadRequest}
+	}
 	key, err := base64.StdEncoding.DecodeString(r.FormValue("key"))
 	if err != nil {
 		return &appError{Message: err.Error(), Code: http.StatusBadRequest}
@@ -165,17 +239,22 @@ func Vote(w http.ResponseWriter, r *http.Request) *appError {
 		ExpressionAttributeValues struct {
 			S struct{ N string } `json:":s"`
 		}
+		ReturnValues string
 	}{}
 	bj.TableName = ddbTablePost
 	bj.Key.I.S = postTypeGIF
 	bj.Key.K.B = key
 	bj.UpdateExpression = "ADD S :s"
 	bj.ExpressionAttributeValues.S.N = "1"
-	if err := aws.DynamoDBPost("UpdateItem", bj, nil); err != nil {
+	bj.ReturnValues = "ALL_NEW"
+	ur := struct{ Attributes PostDDB }{}
+	if err := aws.DynamoDBPost("UpdateItem", bj, &ur); err != nil {
 		glog.Errorf("%v", err)
 	}
 
-	w.Write([]byte("true"))
+	pj := postDDBToJSON(ur.Attributes)
+	pj.V = true
+	json.NewEncoder(w).Encode(pj)
 	return nil
 }
 

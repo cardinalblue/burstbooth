@@ -19,19 +19,20 @@ func TestPostAndVote(t *testing.T) {
 
 	v := url.Values{"url": {"http://127.0.0.1/a.jpg"}}
 	util.JSONReq3("POST", ts.URL+"/PostImg?"+v.Encode(), nil)
-	imgs := []PostDDB{}
+
+	imgs := struct{ Posts []PostJSON }{}
 	util.JSONReq3("GET", ts.URL+"/Hot", &imgs)
-	if imgs[0].S.N != "0" {
+	if imgs.Posts[0].S.N != "0" {
 		t.Fatalf("wrong imgs")
 	}
 
 	// Vote twice with the same deviceID, the score should still be 1.
-	v = url.Values{"device_id": {"ddd"}, "key": {base64.StdEncoding.EncodeToString(imgs[0].K.B)}}
+	v = url.Values{"device_id": {"ddd"}, "key": {base64.StdEncoding.EncodeToString(imgs.Posts[0].K.B)}}
 	util.JSONReq3("POST", ts.URL+"/Vote?"+v.Encode(), nil)
 	util.JSONReq3("POST", ts.URL+"/Vote?"+v.Encode(), nil)
-	imgs = []PostDDB{}
+	imgs = struct{ Posts []PostJSON }{}
 	util.JSONReq3("GET", ts.URL+"/Hot", &imgs)
-	if imgs[0].S.N != "1" {
+	if imgs.Posts[0].S.N != "1" {
 		t.Fatalf("wrong imgs")
 	}
 }
@@ -46,27 +47,27 @@ func TestHotPaginate(t *testing.T) {
 	postAndVoteNTimes(ts, "http://127.0.0.1/1vote.jpg", 1)
 
 	// Paginate downwards
-	imgs := []PostDDB{}
+	imgs := struct{ Posts []PostJSON }{}
 	util.JSONReq3("GET", ts.URL+"/Hot?limit=2", &imgs)
-	if imgs[0].URL.S != "http://127.0.0.1/3votes.jpg" {
+	if imgs.Posts[0].URL.S != "http://127.0.0.1/3votes.jpg" {
 		t.Fatalf("")
 	}
-	if imgs[1].URL.S != "http://127.0.0.1/2votes.jpg" {
+	if imgs.Posts[1].URL.S != "http://127.0.0.1/2votes.jpg" {
 		t.Fatalf("")
 	}
-	v := url.Values{"key": {base64.StdEncoding.EncodeToString(imgs[1].K.B)}, "score": {imgs[1].S.N}}
-	imgs2 := []PostDDB{}
+	v := url.Values{"key": {base64.StdEncoding.EncodeToString(imgs.Posts[1].K.B)}, "score": {imgs.Posts[1].S.N}}
+	imgs2 := struct{ Posts []PostJSON }{}
 	util.JSONReq3("GET", ts.URL+"/Hot?"+v.Encode(), &imgs2)
-	if imgs2[0].URL.S != "http://127.0.0.1/1vote.jpg" {
+	if imgs2.Posts[0].URL.S != "http://127.0.0.1/1vote.jpg" {
 		t.Fatalf("")
 	}
 
 	// Paginate upwards
 	postAndVoteNTimes(ts, "http://127.0.0.1/4votes.jpg", 4)
-	v = url.Values{"key": {base64.StdEncoding.EncodeToString(imgs[0].K.B)}, "score": {imgs[0].S.N}, "forward": {"true"}}
-	imgs = []PostDDB{}
+	v = url.Values{"key": {base64.StdEncoding.EncodeToString(imgs.Posts[0].K.B)}, "score": {imgs.Posts[0].S.N}, "forward": {"true"}}
+	imgs = struct{ Posts []PostJSON }{}
 	util.JSONReq3("GET", ts.URL+"/Hot?"+v.Encode(), &imgs)
-	if imgs[0].URL.S != "http://127.0.0.1/4votes.jpg" {
+	if imgs.Posts[0].URL.S != "http://127.0.0.1/4votes.jpg" {
 		t.Fatalf("")
 	}
 }

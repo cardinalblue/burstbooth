@@ -1,0 +1,1 @@
+curl -XPOST -H 'X-Amz-Target: DynamoDB_20120810.UpdateItem' -H 'Authorization: AWS4-HMAC-SHA256 Credential=hack20141225Dev/20141226/us-east-1/localhost:8000/aws4_request' -d '{"TableName":"Post","Key":{"I":{"S":"gif"},"K":{"B":"E7NkXQvfTSo="}},"UpdateExpression":"set S = :s","ExpressionAttributeValues":{":s":{"N":"8"}},"ReturnValues":"ALL_NEW"}'  http://127.0.0.1:8000/
