@@ -2,14 +2,17 @@ package burstbooth
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
@@ -85,9 +88,9 @@ var (
 )
 
 func init() {
-	jsonError("/PostImg", PostImg)
-	jsonError("/Hot", Hot)
-	jsonError("/Vote", Vote)
+	jsonAPI("/PostImg", PostImg)
+	jsonAPI("/Hot", Hot)
+	jsonAPI("/Vote", Vote)
 	http.HandleFunc("/", root)
 }
 
@@ -378,12 +381,35 @@ func (a *appError) Error() string {
 	return a.Message
 }
 
-func jsonError(path string, fn func(w http.ResponseWriter, r *http.Request) *appError) {
-	jsonErrorServeMux(http.DefaultServeMux, path, fn)
+func jsonAPI(path string, fn func(w http.ResponseWriter, r *http.Request) *appError) {
+	http.DefaultServeMux.HandleFunc(path, makeGzipHandler(makeJSONErrorHandler(fn)))
 }
 
-func jsonErrorServeMux(sm *http.ServeMux, path string, fn func(w http.ResponseWriter, r *http.Request) *appError) {
-	sm.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+type gzipResponseWriter struct {
+	io.Writer
+	http.ResponseWriter
+}
+
+func (w gzipResponseWriter) Write(b []byte) (int, error) {
+	return w.Writer.Write(b)
+}
+
+func makeGzipHandler(fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			fn(w, r)
+			return
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		fn(gzipResponseWriter{Writer: gz, ResponseWriter: w}, r)
+	}
+}
+
+func makeJSONErrorHandler(fn func(w http.ResponseWriter, r *http.Request) *appError) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		appErr := fn(w, r)
 		if appErr != nil {
 			je := struct {
@@ -394,5 +420,5 @@ func jsonErrorServeMux(sm *http.ServeMux, path string, fn func(w http.ResponseWr
 			b, _ := json.Marshal(&je)
 			http.Error(w, string(b), appErr.Code)
 		}
-	})
+	}
 }
