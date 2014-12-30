@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang/glog"
@@ -128,6 +129,7 @@ func PostImg(w http.ResponseWriter, r *http.Request) *appError {
 	bodyj.ExpressionAttributeValues.I.S = postTypeGIF
 	bodyj.ExpressionAttributeValues.K.B = post.K.B
 	if err := aws.DynamoDBPost("PutItem", bodyj, nil); err != nil {
+		glog.Errorf("%v", err)
 		return &appError{Message: err.Error(), Code: http.StatusInternalServerError}
 	}
 	json.NewEncoder(w).Encode(post)
@@ -154,7 +156,7 @@ func Hot(w http.ResponseWriter, r *http.Request) *appError {
 	if r.FormValue("forward") == "true" {
 		forward = true
 	}
-	limit := 32
+	limit := 20
 	if limitStr := r.FormValue("limit"); limitStr != "" {
 		l, err := strconv.Atoi(limitStr)
 		if err != nil {
@@ -166,29 +168,47 @@ func Hot(w http.ResponseWriter, r *http.Request) *appError {
 
 	posts, err := getPostsByScore(postTypeGIF, key, score, forward, limit)
 	if err != nil {
+		glog.Errorf("%v", err)
 		return &appError{Message: err.Error(), Code: http.StatusInternalServerError}
 	}
+	c := make(chan PostJSON)
+	var wg sync.WaitGroup
+	wg.Add(len(posts))
+	for _, p := range posts {
+		go func(p PostDDB) {
+			defer wg.Done()
+			pj := postDDBToJSON(p)
+			if len(deviceID) > 0 {
+				bodyj := struct {
+					TableName string
+					Key       struct {
+						D struct{ B []byte }
+						P struct{ B []byte }
+					}
+				}{}
+				bodyj.TableName = ddbTableVote
+				bodyj.Key.D.B = deviceID
+				bodyj.Key.P.B = postPK(postTypeGIF, p.K.B)
+				v := struct{ Item *VoteDDB }{}
+				if err := aws.DynamoDBPost("GetItem", bodyj, &v); err != nil {
+					glog.Errorf("%v", err)
+				} else {
+					if v.Item != nil {
+						pj.V = true
+					}
+				}
+			}
+			c <- pj
+		}(p)
+	}
+	go func() {
+		wg.Wait()
+		close(c)
+	}()
 	resp := struct {
 		Posts []PostJSON
 	}{}
-	for _, p := range posts {
-		pj := postDDBToJSON(p)
-		bodyj := struct {
-			TableName string
-			Key       struct {
-				D struct{ B []byte }
-				P struct{ B []byte }
-			}
-		}{}
-		bodyj.TableName = ddbTableVote
-		bodyj.Key.D.B = deviceID
-		bodyj.Key.P.B = postPK(postTypeGIF, p.K.B)
-		v := struct{ Item *VoteDDB }{}
-		if err := aws.DynamoDBPost("GetItem", bodyj, &v); err == nil {
-			if v.Item != nil {
-				pj.V = true
-			}
-		}
+	for pj := range c {
 		resp.Posts = append(resp.Posts, pj)
 	}
 	sort.Sort(postJSONByKDesc(resp.Posts))
@@ -230,6 +250,7 @@ func Vote(w http.ResponseWriter, r *http.Request) *appError {
 		if derr, ok := err.(*aws.ErrDynamoDB); ok && derr.Type == "ConditionalCheckFailedException" {
 			return &appError{Message: derr.Error(), Code: http.StatusBadRequest}
 		}
+		glog.Errorf("%v", err)
 		return &appError{Message: err.Error(), Code: http.StatusInternalServerError}
 	}
 
